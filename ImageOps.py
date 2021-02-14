@@ -4,6 +4,34 @@ import numpy as np
 
 
 class Ops:
+    def __init__(self, imageType='rgb'):  # rgb or grey
+        self.__imageType = imageType
+        pass
+
+    def __isSingle(self, images):
+        if isinstance(images, str):
+            return True
+        if isinstance(images, (tuple, list)):
+            return False
+        if isinstance(images, np.ndarray):
+            if self.__imageType == "grey":
+                return len(images.shape) == 2
+            else:
+                return len(images.shape) == 3
+        raise TypeError("invalid format")
+
+    def __validateOperation(self, opsType):
+        if self.__imageType == 'grey' and (opsType == 'contrast' or opsType == "saturation"
+                                           or opsType == "brightness"):
+            raise TypeError("invalid operation type : " + opsType)
+
+    def __pad3dim(self,image):
+        image = image.reshape(list(image.shape)+[1])
+        return np.pad(image, ((0, 0), (0, 0), (0, 2)), 'constant',constant_values=0)
+
+    def __dePad3dim(self,image):
+        return image[:, :, 0]
+
     def perspectiveTransform(self, images):
         def getMaskCoord(imshape):
             vertices = np.array([[(0.01 * imshape[1], 0.09 * imshape[0]),
@@ -27,9 +55,9 @@ class Ops:
                                         flags=cv2.INTER_LINEAR)
             return image
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return transform(images)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(transform(images[i]))
@@ -47,9 +75,9 @@ class Ops:
             elif (type == 'bilateral'):
                 return cv2.bilateralFilter(image, 9, 75, 75)
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return change(images)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(change(images[i]))
@@ -57,6 +85,8 @@ class Ops:
 
     def addSaltPepperNoise(self, images, salt_vs_pepper=0.2, amount=0.004):
         def change(X_imgs):
+            if self.__imageType == 'grey':
+                X_imgs = self.__pad3dim(X_imgs)
             X_imgs_copy = X_imgs.copy()
             row, col, _ = X_imgs_copy.shape
             num_salt = np.ceil(amount * X_imgs_copy[0].size * salt_vs_pepper)
@@ -68,26 +98,29 @@ class Ops:
                 # Add Pepper noise
                 coords = [np.random.randint(0, i - 1, int(num_pepper)) for i in X_img.shape]
                 X_img[coords[0], coords[1]] = 0
+            if self.__imageType == 'grey':
+                X_imgs_copy = self.__dePad3dim(X_imgs_copy)
             return X_imgs_copy
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return change(images)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(change(images[i]))
             return self.__returnAsNumpyArray(imgs)
 
     def augmentBrightness(self, images, brightness):
+        self.__validateOperation("brightness")
         def change(image, bright):
             image1 = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
             image1[:, :, 2] = image1[:, :, 2] * bright
             image1 = cv2.cvtColor(image1, cv2.COLOR_HSV2RGB)
             return image1
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return change(images, brightness)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(change(images[i], brightness))
@@ -95,15 +128,19 @@ class Ops:
 
     def rotation(self, images, ang_range):
         def change(image):
+            if self.__imageType == 'grey':
+                image = self.__pad3dim(image)
             ang_rot = np.random.uniform(ang_range) - ang_range / 2
-            rows, cols, ch = image.shape
+            rows, cols, ch= image.shape
             Rot_M = cv2.getRotationMatrix2D((cols / 2, rows / 2), ang_rot, 1)
-            image = cv2.warpAffine(image, Rot_M, (cols, rows))
+            image = np.array(cv2.warpAffine(image, Rot_M, (cols, rows)))
+            if self.__imageType == 'grey':
+                image = self.__dePad3dim(image)
             return image
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return change(images)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(change(images[i]))
@@ -111,62 +148,70 @@ class Ops:
 
     def shear(self, images, shear_range):
         def change(image):
+            if self.__imageType == 'grey':
+                image = self.__pad3dim(image)
             rows, cols, ch = image.shape
             pts1 = np.float32([[5, 5], [20, 5], [5, 20]])
             pt1 = 5 + shear_range * np.random.uniform() - shear_range / 2
             pt2 = 20 + shear_range * np.random.uniform() - shear_range / 2
             pts2 = np.float32([[pt1, 5], [pt2, pt1], [5, pt2]])
             shear_M = cv2.getAffineTransform(pts1, pts2)
-            image = cv2.warpAffine(image, shear_M, (cols, rows))
+            image = np.array(cv2.warpAffine(image, shear_M, (cols, rows)))
+            if self.__imageType == 'grey':
+                image = self.__dePad3dim(image)
             return image
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return change(images)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
-                imgs.append(np.array(change(images[i])))
+                imgs.append(change(images[i]))
             return self.__returnAsNumpyArray(imgs)
 
     def translation(self, images, trans_range):
         def change(image):
+            if self.__imageType == 'grey':
+                image = self.__pad3dim(image)
             rows, cols, ch = image.shape
             tr_x = trans_range * np.random.uniform() - trans_range / 2
             tr_y = trans_range * np.random.uniform() - trans_range / 2
             Trans_M = np.float32([[1, 0, tr_x], [0, 1, tr_y]])
             image = cv2.warpAffine(image, Trans_M, (cols, rows))
+            if self.__imageType == 'grey':
+                image = self.__dePad3dim(image)
             return image
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return change(images)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(np.array(change(images[i])))
             return self.__returnAsNumpyArray(imgs)
 
     def horizontalFlip(self, images):
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return cv2.flip(images, 0)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(np.array(cv2.flip(images[i], 0)))
             return self.__returnAsNumpyArray(imgs)
 
     def verticalFlip(self, images):
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return cv2.flip(images, 1)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(np.array(cv2.flip(images[i], 1)))
             return self.__returnAsNumpyArray(imgs)
 
     def transposeFlip(self, images):
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return cv2.flip(images, -1)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(np.array(cv2.flip(images[i], -1)))
@@ -174,28 +219,30 @@ class Ops:
 
     def changeContrast(self, images, level):
         factor = (259 * (level + 255)) / (255 * (259 - level))
+        self.__validateOperation("contrast")
 
         def contrast(c):
             return 128 + factor * (c - 128)
 
         def change(img):
-            return Image.fromarray(img).point(contrast)
+            return np.array(Image.fromarray(img).point(contrast))
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return contrast(images)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
-                imgs.append(np.array(change(images[i])))
+                imgs.append(change(images[i]))
             return self.__returnAsNumpyArray(imgs)
 
     def saturation(self, images, ratio=0.5):
+        self.__validateOperation("saturation")
         import PIL.ImageEnhance as enhance
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             images = Image.fromarray(images)
             converter = enhance.Color(images)
             return converter.enhance(ratio)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 img = Image.fromarray(images[i])
@@ -209,9 +256,9 @@ class Ops:
             image = np.asarray(image, dtype="int32")
             return image
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return convert(images)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(np.array(convert(images[i])))
@@ -298,9 +345,9 @@ class Ops:
 
         h = Halftone()
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return np.array(h.make(images, sample, scale, percentage, angles, style, antialias))
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(np.array(h.make(images[i], sample, scale, percentage, angles, style, antialias)))
@@ -345,16 +392,16 @@ class Ops:
 
     def __returnAsNumpyArray(self, data):
         try:
-            return np.array(data)
+            return np.array(data).reshape([-1] + list(data[0].shape))
         except:
             return data
 
     def shiftHue(self, images, hout):
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             hsv = self.__rgb_to_hsv(images)
             hsv[..., 0] = hout
             return np.array(self.__hsv_to_rgb(hsv))
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 hsv = self.__rgb_to_hsv(images[i])
@@ -366,6 +413,7 @@ class Ops:
     def randomErasing(self, images, sl=0.02, sh=0.4, r1=0.3, mean=[0.4914, 0.4822, 0.4465]):
         import random, math
         def erase(img):
+            img = img.copy()
             for attempt in range(50):
                 area = img.shape[0] * img.shape[2]
                 target_area = random.uniform(sl, sh) * area
@@ -381,15 +429,25 @@ class Ops:
                         img[x1:x1 + h, y1:y1 + w, 2] = mean[2]
                     else:
                         img[x1:x1 + h, y1:y1 + w, 0] = mean[0]
-                    return img
-            return img
+                    return np.array(img)
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
-            return erase(np.array(images))
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        if self.__isSingle(images):
+            if self.__imageType == 'grey':
+                images = self.__pad3dim(images)
+            images =  erase(images)
+            if self.__imageType == 'grey':
+                images = self.__dePad3dim(images)
+            return images
+        else:
             imgs = []
             for i in range(len(images)):
-                imgs.append(np.array(erase(np.array(images[i]))))
+                img=images[i]
+                if self.__imageType == 'grey':
+                    img = self.__pad3dim(img)
+                img = erase(img)
+                if self.__imageType == 'grey':
+                    img = self.__dePad3dim(img)
+                imgs.append(img)
             return self.__returnAsNumpyArray(imgs)
 
     def cropFromCentre(self, images, width, height):
@@ -403,26 +461,25 @@ class Ops:
             img = img.crop((left, top, right, bottom))
             return np.array(img)
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return crop(images)
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(np.array(crop(images[i])))
             return self.__returnAsNumpyArray(imgs)
 
     def resizeImage(self, images, width=80, height=80):
+        def resize(image):
+            image = Image.fromarray(image)
+            return np.array(image.resize((width, height), Image.ANTIALIAS))
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
-            images = Image.fromarray(images)
-            images = images.resize((width, height), Image.ANTIALIAS)
-            return images
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        if self.__isSingle(images):
+            return resize(images)
+        else:
             imgs = []
             for i in range(len(images)):
-                img = Image.fromarray(images[i])
-                img = img.resize((width, height), Image.ANTIALIAS)
-                imgs.append(np.array(img))
+                imgs.append(resize(images[i]))
             return self.__returnAsNumpyArray(imgs)
 
     def resizeImageWithAspectRatio(self, images, size=128, padding=True, pad_option=0):
@@ -448,26 +505,31 @@ class Ops:
                 img = self.resizeImage(img, new_width, new_height)
                 pad_size = size - new_height
                 if padding:
-                    if pad_size % 2 == 0:
-                        img = np.pad(img, ((pad_size // 2, pad_size // 2), (0, 0),(0,0)), 'constant',
-                                     constant_values=pad_option)
+                    if(self.__imageType == 'grey'):
+                        if pad_size % 2 == 0:
+                            paddingSize = ((pad_size // 2, pad_size // 2), (0, 0))
+                        else:
+                            paddingSize = ((pad_size // 2, pad_size // 2 + 1), (0, 0))
                     else:
-                        img = np.pad(img, ((pad_size // 2, pad_size // 2 + 1),(0,0), (0, 0)), 'constant',
-                                     constant_values=pad_option)
+                        if pad_size % 2 == 0:
+                            paddingSize = ((pad_size // 2, pad_size // 2), (0, 0), (0, 0))
+                        else:
+                            paddingSize = ((pad_size // 2, pad_size // 2 + 1), (0, 0), (0, 0))
+                    img = np.pad(img, paddingSize, 'constant', constant_values=pad_option)
             return img
 
-        if isinstance(images, np.ndarray) and len(images.shape) == 3:
+        if self.__isSingle(images):
             return np.array(resize(images, size, padding, pad_option))
-        elif isinstance(images, np.ndarray) and len(images.shape) == 4 or isinstance(images, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(images)):
                 imgs.append(np.array(resize(images[i], size, padding, pad_option)))
             return self.__returnAsNumpyArray(imgs)
 
     def readImage(self, filename):
-        if isinstance(filename, str):
+        if self.__isSingle(filename):
             return np.array(Image.open(filename))
-        elif isinstance(filename, (tuple, list)):
+        else:
             imgs = []
             for i in range(len(filename)):
                 imgs.append(np.array(Image.open(filename[i])))
